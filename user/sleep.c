@@ -7,7 +7,7 @@ int main(int argc, char* argv[]) {
         printf("error: no parameter\n");
     }
     else {
-        sleep(argv[1]);
+        sleep(atoi(argv[1]));
     }
     exit(0);
 }

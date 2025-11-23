@@ -13,6 +13,7 @@ void trans(int ipip[2]) {
 
     if(fork() == 0) {
         close(opip[1]);
+        close(ipip[0]);
         trans(opip);
     }
     else {
