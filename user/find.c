@@ -55,7 +55,7 @@ void find(char* path, char* filename) {
 
 int main(int argc, char* argv[]) {
     if(argc < 3 || !strcmp(argv[2], ".") || !strcmp(argv[2], "..")) {
-        printf("Usage: find [directory] [dest file (no '.' or '..')]\n");
+        printf("Usage: find directory filename (no '.' or '..')\n");
     }
     else {
         char buf[512];
