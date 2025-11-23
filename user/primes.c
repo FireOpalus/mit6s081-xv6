@@ -32,7 +32,7 @@ void trans(int ipip[2]) {
 
 }
 
-int main(int argc, char argv[]) {
+int main(int argc, char* argv[]) {
     int ipip[2];
     pipe(ipip);
 

@@ -2,7 +2,7 @@
 #include "kernel/stat.h"
 #include "user/user.h"
 
-int main(int argc, char argv[]) {
+int main(int argc, char* argv[]) {
     int pi1[2], pi2[2];
     pipe(pi1);
     pipe(pi2);
