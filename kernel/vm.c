@@ -440,3 +440,34 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
     return -1;
   }
 }
+
+// Print Process's Page Table
+// Include Now Page Table and Three Levels
+// Now Page Table Print as "page table [address]"
+// Highest Level Print as "..[index]: pte [pte] pa [pa]"
+// Mid Level Print as ".. ..[index]: pte [pte] pa [pa]"
+// Lowest Level Print as ".. .. ..[index]: pte [pte] pa [pa]"
+void
+preorderpgtbl(pagetable_t pagetable, int level)
+{
+  for(pte_t* pte = pagetable; pte - pagetable < 512; pte++) {
+    if((*pte & PTE_V) == 0) continue;
+    switch(level) {
+    case 0: printf(".. ");
+    case 1: printf(".. ");
+    case 2: printf("..");
+    default:break;
+    }
+    printf("%d: pte %p pa %p\n", pte - pagetable, *pte, PTE2PA(*pte));
+    if(level) {
+      preorderpgtbl((pagetable_t)PTE2PA(*pte), level - 1);
+    }
+  }
+}
+
+void
+vmprint(pagetable_t pagetable) 
+{
+  printf("page table %p\n", pagetable);
+  preorderpgtbl(pagetable, 2);
+}
