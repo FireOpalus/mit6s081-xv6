@@ -47,7 +47,7 @@ int main(int argc, char* argv[]) {
                 *cmd_end = 0;
             }
         }
-        if(idx) {
+        if(cmd_end - xargs > 0) {
             xexec(xargv[0], xargv);
         }
     }
