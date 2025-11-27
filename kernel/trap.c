@@ -77,8 +77,15 @@ usertrap(void)
     exit(-1);
 
   // give up the CPU if this is a timer interrupt.
-  if(which_dev == 2)
+  if(which_dev == 2) {
+    if(p->alarm_interval != 0 && --p->alarm_nticks <= 0 && p->alarm_state == 0) {
+      p->alarm_nticks = p->alarm_interval;
+      p->alarm_state = 1;
+      *p->alarm_trapframe = *p->trapframe;
+      p->trapframe->epc = (uint64)p->alarm_handler;
+    }
     yield();
+  }
 
   usertrapret();
 }
@@ -218,3 +225,22 @@ devintr()
   }
 }
 
+// function alarm
+uint64
+sigalarm(int ticks, void (*handler)()) 
+{
+  struct proc *p = myproc();
+  p->alarm_handler = handler;
+  p->alarm_interval = ticks;
+  p->alarm_nticks = ticks;
+  return 0;
+}
+
+uint64
+sigreturn(void) 
+{
+  struct proc *p = myproc();
+  *p->trapframe = *p->alarm_trapframe;
+  p->alarm_state = 0;
+  return 0;
+}

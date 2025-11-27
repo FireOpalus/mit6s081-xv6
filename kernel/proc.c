@@ -113,6 +113,18 @@ found:
     return 0;
   }
 
+  // Allocate a trapframe page for syscall alarm
+  if((p->alarm_trapframe = (struct trapframe *)kalloc()) == 0) {
+    release(&p->lock);
+    return 0;
+  }
+
+  // Initialize process's interval and alarmfn as zero
+  p->alarm_interval = 0;
+  p->alarm_handler = 0;
+  p->alarm_state = 0;
+  p->alarm_nticks = 0;
+
   // An empty user page table.
   p->pagetable = proc_pagetable(p);
   if(p->pagetable == 0){
@@ -149,6 +161,16 @@ freeproc(struct proc *p)
   p->chan = 0;
   p->killed = 0;
   p->xstate = 0;
+
+  // free alarm
+  if(p->alarm_trapframe)
+    kfree((void*)p->alarm_trapframe);
+  p->alarm_trapframe = 0;
+  p->alarm_interval = 0;
+  p->alarm_handler = 0;
+  p->alarm_nticks = 0;
+  p->alarm_state = 0;
+
   p->state = UNUSED;
 }
 
