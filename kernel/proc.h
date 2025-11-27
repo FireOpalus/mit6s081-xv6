@@ -96,10 +96,10 @@ struct proc {
 
   // syscall alarm
   int alarm_interval;                // Intervals of sys_sigalarm
-  int alarm_nticks;                  // Tick counters, set zero when call alarmfn
-  void (*alarm_handler)();     // Function of sys_sigalarm
-  struct trapframe *alarm_trapframe;
-  int alarm_state;             // If an alarm interrupt is running
+  int alarm_nticks;                  // Tick counters, auto self-reduction, set interval when call alarm
+  void (*alarm_handler)();           // Function of sys_sigalarm
+  struct trapframe *alarm_trapframe; // Store process's trapframe when call alarm and restore after alarm return     
+  int alarm_state;                   // If an alarm interrupt is running
 
   // these are private to the process, so p->lock need not be held.
   uint64 kstack;               // Virtual address of kernel stack
