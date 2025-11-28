@@ -479,7 +479,7 @@ uvmcowcopy(uint64 va)
   
   uint64 flags = (PTE_FLAGS(*pte) & ~PTE_COW) | PTE_W;
   uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 0);
-  if(mappages(p->pagetable, va, PGSIZE, new, flags) == -1) 
+  if(mappages(p->pagetable, PGROUNDDOWN(va), PGSIZE, new, flags) == -1) 
     panic("uvmcowcopy: mappages");
 
   return 0;

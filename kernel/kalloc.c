@@ -29,7 +29,7 @@ struct {
 struct spinlock kcnt_lock;
 #define PA2KCNT_IDX(p) (((p) - KERNBASE) / PGSIZE)
 #define KCNT_MAX_IDX PA2KCNT_IDX(PHYSTOP)
-uint16 kcnt[KCNT_MAX_IDX] = {0};
+int kcnt[KCNT_MAX_IDX] = {0};
 #define PA2KCNT(p) kcnt[PA2KCNT_IDX((uint64)(p))]
 
 void
