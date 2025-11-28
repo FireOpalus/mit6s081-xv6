@@ -23,10 +23,20 @@ struct {
   struct run *freelist;
 } kmem;
 
+// Counter of per physical page's references
+// Create lock to protect
+// Create some defines to get the index from physical address
+struct spinlock kcnt_lock;
+#define PA2KCNT_IDX(p) (((p) - KERNBASE) / PGSIZE)
+#define KCNT_MAX_IDX PA2KCNT_IDX(PHYSTOP)
+uint16 kcnt[KCNT_MAX_IDX] = {0};
+#define PA2KCNT(p) kcnt[PA2KCNT_IDX((uint64)(p))]
+
 void
 kinit()
 {
   initlock(&kmem.lock, "kmem");
+  initlock(&kcnt_lock, "kcnt");
   freerange(end, (void*)PHYSTOP);
 }
 
@@ -51,15 +61,19 @@ kfree(void *pa)
   if(((uint64)pa % PGSIZE) != 0 || (char*)pa < end || (uint64)pa >= PHYSTOP)
     panic("kfree");
 
-  // Fill with junk to catch dangling refs.
-  memset(pa, 1, PGSIZE);
+  acquire(&kcnt_lock);
+  if(--PA2KCNT(pa) <= 0) {
+     // Fill with junk to catch dangling refs.
+    memset(pa, 1, PGSIZE);
 
-  r = (struct run*)pa;
+    r = (struct run*)pa;
 
-  acquire(&kmem.lock);
-  r->next = kmem.freelist;
-  kmem.freelist = r;
-  release(&kmem.lock);
+    acquire(&kmem.lock);
+    r->next = kmem.freelist;
+    kmem.freelist = r;
+    release(&kmem.lock);
+  }
+  release(&kcnt_lock);
 }
 
 // Allocate one 4096-byte page of physical memory.
@@ -72,11 +86,45 @@ kalloc(void)
 
   acquire(&kmem.lock);
   r = kmem.freelist;
-  if(r)
+  if(r) {
     kmem.freelist = r->next;
+    PA2KCNT(r) = 1;
+  }
   release(&kmem.lock);
 
-  if(r)
+  if(r) 
     memset((char*)r, 5, PGSIZE); // fill with junk
   return (void*)r;
+}
+
+// create a new page and copy data from pa
+void*
+copy_new_phypage(uint64 pa)
+{
+  acquire(&kcnt_lock);
+  if(PA2KCNT(pa) <= 1) {
+    release(&kcnt_lock);
+    return (void*)pa;
+  }
+
+  char* newpg;
+  if((newpg = kalloc()) == 0) {
+    release(&kcnt_lock);
+    return 0;
+  }
+  memmove((void*)newpg, (void*)pa, PGSIZE);
+  
+  PA2KCNT(pa)--;
+
+  release(&kcnt_lock);
+  return (void*)newpg;
+}
+
+// add reference count of a physical page
+void
+add_page_ref(uint64 pa)
+{
+  acquire(&kcnt_lock);
+  PA2KCNT(pa)++;
+  release(&kcnt_lock);
 }

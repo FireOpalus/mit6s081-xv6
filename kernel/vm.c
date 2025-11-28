@@ -5,6 +5,8 @@
 #include "riscv.h"
 #include "defs.h"
 #include "fs.h"
+#include "spinlock.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -299,10 +301,9 @@ uvmfree(pagetable_t pagetable, uint64 sz)
   freewalk(pagetable);
 }
 
-// Given a parent process's page table, copy
-// its memory into a child's page table.
-// Copies both the page table and the
-// physical memory.
+// Given a parent process's page table,
+// DO NOT copy its memory into a child's page table.
+// Build map of parent's physical pages into child
 // returns 0 on success, -1 on failure.
 // frees any allocated pages on failure.
 int
@@ -311,7 +312,6 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
   pte_t *pte;
   uint64 pa, i;
   uint flags;
-  char *mem;
 
   for(i = 0; i < sz; i += PGSIZE){
     if((pte = walk(old, i, 0)) == 0)
@@ -319,14 +319,19 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     if((*pte & PTE_V) == 0)
       panic("uvmcopy: page not present");
     pa = PTE2PA(*pte);
+
+    // remove write tag and valid cow tag
+    if(*pte & PTE_W) 
+      *pte = (*pte & ~PTE_W) | PTE_COW;
+
     flags = PTE_FLAGS(*pte);
-    if((mem = kalloc()) == 0)
-      goto err;
-    memmove(mem, (char*)pa, PGSIZE);
-    if(mappages(new, i, PGSIZE, (uint64)mem, flags) != 0){
-      kfree(mem);
+
+    if(mappages(new, i, PGSIZE, pa, flags) != 0){
       goto err;
     }
+
+    add_page_ref(pa);
+
   }
   return 0;
 
@@ -357,6 +362,9 @@ copyout(pagetable_t pagetable, uint64 dstva, char *src, uint64 len)
   uint64 n, va0, pa0;
 
   while(len > 0){
+    if(checkcow(dstva)) 
+      uvmcowcopy(dstva);
+
     va0 = PGROUNDDOWN(dstva);
     pa0 = walkaddr(pagetable, va0);
     if(pa0 == 0)
@@ -439,4 +447,40 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// check page cow tag
+int 
+checkcow(uint64 va)
+{
+  pte_t* pte;
+  struct proc *p = myproc();
+  return va < p->sz
+      && ((pte = walk(p->pagetable, va, 0)) != 0)
+      && (*pte & PTE_V)
+      && (*pte & PTE_COW);
+}
+
+// run copy-on-write
+int 
+uvmcowcopy(uint64 va)
+{
+  pte_t* pte;
+  struct proc* p = myproc();
+
+  if((pte = walk(p->pagetable, va, 0)) == 0) 
+    panic("uvmcowcopy: walk");
+  
+  uint64 pa = PTE2PA(*pte);
+  uint64 new = (uint64)copy_new_phypage(pa);
+
+  if(new == 0)
+    return -1;
+  
+  uint64 flags = (PTE_FLAGS(*pte) & ~PTE_COW) | PTE_W;
+  uvmunmap(p->pagetable, PGROUNDDOWN(va), 1, 0);
+  if(mappages(p->pagetable, va, PGSIZE, new, flags) == -1) 
+    panic("uvmcowcopy: mappages");
+
+  return 0;
 }
