@@ -15,6 +15,7 @@
 #include "sleeplock.h"
 #include "file.h"
 #include "fcntl.h"
+#include "memlayout.h"
 
 // Fetch the nth word-sized system call argument as a file descriptor
 // and return both the descriptor and the corresponding struct file.
@@ -482,5 +483,103 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+// mmap system call
+uint64
+sys_mmap(void)
+{
+  void* addr;
+  uint64 length;
+  int prot;
+  int flags;
+  int fd;
+  struct file* f;
+  uint64 offset;
+
+  if(argaddr(0, (uint64*)&addr) < 0 || argaddr(1, &length) < 0 || 
+     argint(2, &prot) < 0 || argint(3, &flags) < 0 ||
+     argfd(4, &fd, &f) < 0 || argaddr(5, &offset) < 0)
+    return -1;
+
+  if((!f->readable && (prot & PROT_READ)) || (!f->writable && (prot & PROT_WRITE) && !(flags & MAP_PRIVATE)))
+    return -1;
+  
+  length = PGROUNDUP(length);
+
+  struct proc* p = myproc();
+  struct vma* vma = 0;
+  uint64 vma_end = MMAP_END;
+  // Find a free VMA slot
+  for(int i = 0; i < MAXNVMA; i++) {
+    if(!p->vmas[i].valid) {
+      if(vma == 0) {
+        vma = &p->vmas[i];
+        vma->valid = 1;
+      }
+    }
+    else {
+      if(p->vmas[i].start < vma_end) {
+        vma_end = PGROUNDDOWN(p->vmas[i].start);
+      }
+    }
+  }
+
+  if(vma == 0) 
+    return (uint64)-1;
+
+  vma->start = vma_end - length;
+  vma->length = length;
+  vma->prot = prot;
+  vma->flags = flags;
+  vma->f = f;
+  vma->offset = offset;
+  filedup(vma->f); // Increment reference count
+
+  return (uint64)vma->start;
+}
+
+// munmap system call
+uint64
+sys_munmap(void)
+{
+  uint64 addr;
+  uint64 length;
+
+  if(argaddr(0, &addr) < 0)
+    return -1;
+  if(argaddr(1, &length) < 0)
+    return -1;
+
+  struct proc* p = myproc();
+  struct vma* v = find_vma(p, (uint64)addr); 
+  if(v == 0)
+    return -1;
+  
+  if(v->start < addr && addr + length < v->start + v->length) 
+    return -1;
+  
+  uint64 addr_alinged = addr;
+  if(addr > v->start) 
+    addr_alinged = PGROUNDUP((uint64)addr);
+  
+  int nunmap = length - (addr_alinged - (uint64)addr);
+  if(nunmap < 0)
+    nunmap = 0;
+
+  vmaunmap(p->pagetable, addr_alinged, nunmap, v);    // 从addr_alinged开始释放nunmap字节数
+
+  if (addr <= v->start && addr + length > v->start) {
+      v->offset += addr + length - v->start;
+      v->start = addr + length;
+  }
+  v->length -= length;
+
+  if (v->length <= 0) {
+      fileclose(v->f);
+      v->valid = 0;
+  }
+
   return 0;
 }

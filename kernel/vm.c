@@ -4,7 +4,12 @@
 #include "elf.h"
 #include "riscv.h"
 #include "defs.h"
+#include "fcntl.h"
+#include "spinlock.h"
+#include "sleeplock.h"
 #include "fs.h"
+#include "file.h"
+#include "proc.h"
 
 /*
  * the kernel's page table.
@@ -428,4 +433,67 @@ copyinstr(pagetable_t pagetable, char *dst, uint64 srcva, uint64 max)
   } else {
     return -1;
   }
+}
+
+// Alloc physical page for virtual address
+int
+vma_alloc(uint64 va)
+{
+  struct proc* p = myproc();
+  struct vma* v = find_vma(p, va);
+  if(v == 0)
+    return -1;
+
+  // allocate physical address
+  void* pa = kalloc();
+  if(pa == 0) 
+    panic("vma_alloc: kalloc");
+  memset(pa, 0, PGSIZE);
+
+  // read file from disk
+  begin_op();
+  ilock(v->f->ip);
+  readi(v->f->ip, 0, (uint64)pa, v->offset + PGROUNDDOWN(va - v->start), PGSIZE);
+  iunlock(v->f->ip);
+  end_op();
+
+  // map virtual address to physical address
+  if(mappages(p->pagetable, va, PGSIZE, (uint64)pa, PTE_U | PTE_W | PTE_R) < 0) 
+    panic("vma_alloc: mappages");
+  
+  return 0;
+}
+
+// 释放mmap映射的页，根据PTE_D和MAP_SHARED判断是否将修改写回磁盘
+void vmaunmap(pagetable_t pagetable, uint64 va, uint64 nbytes, struct vma* v) {
+    uint64 a;
+    pte_t* pte;
+
+    for (a = va;a < va + nbytes;a += PGSIZE) {
+        if ((pte = walk(pagetable, a, 0)) == 0)     // 读取va对应pte
+            continue;
+
+        if (PTE_FLAGS(*pte) == PTE_V)
+            panic("sys_munmap: not a leaf");
+
+        if (*pte & PTE_V) {
+            uint64 pa = PTE2PA(*pte);
+            if ((*pte & PTE_D) && (v->flags & MAP_SHARED)) {        // 将修改写回磁盘
+                begin_op();
+                ilock(v->f->ip);
+                uint64 aoff = a - v->start;                       // 相对于vma的偏移量
+                if (aoff < 0)
+                    writei(v->f->ip, 0, pa + (-aoff), v->offset, PGSIZE + aoff);        // 第一页是不满PGSIZE的一个页
+                else if (aoff + PGSIZE > v->length)
+                    writei(v->f->ip, 0, pa, v->offset + aoff, v->length - aoff);            // 最后一页是不满PGSIZE的一个页
+                else
+                    writei(v->f->ip, 0, pa, v->offset + aoff, PGSIZE);
+                
+                iunlock(v->f->ip);
+                end_op();
+            }
+            kfree((void*)pa);
+            *pte = 0;
+        }
+    }
 }
